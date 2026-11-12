@@ -1,0 +1,6 @@
+{
+  "name": "ParkSG Live - Singapore Carpark Availability & Rates",
+  "description": "Real-time carpark availability tracker and parking rate calculator for Singapore drivers with HDB, URA, mall rates, EV charging, and ERP info.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
