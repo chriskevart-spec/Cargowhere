@@ -26,6 +26,66 @@ export interface LiveSyncStatus {
 export async function syncRealtimeCarparks(
   carparks: Carpark[]
 ): Promise<{ updatedCarparks: Carpark[]; syncStatus: LiveSyncStatus }> {
+  // 1. Try internal serverless /api/carparkavailabilty (LTA DataMall gateway)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const apiRes = await fetch('/api/carparkavailabilty', { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (apiRes.ok) {
+      const json = await apiRes.json();
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        const ltaMap = new Map<string, number>();
+        for (const item of json.data) {
+          if (item.LotType === 'C' || !item.LotType) {
+            const devKey = (item.Development || '').toLowerCase().trim();
+            const idKey = (item.CarParkID || '').toLowerCase().trim();
+            if (idKey) ltaMap.set(idKey, Number(item.AvailableLots));
+            if (devKey) ltaMap.set(devKey, Number(item.AvailableLots));
+          }
+        }
+
+        let matched = 0;
+        const updated = carparks.map(cp => {
+          const byNo = ltaMap.get(cp.carparkNo.toLowerCase());
+          const byName = ltaMap.get(cp.name.toLowerCase());
+          const avail = byNo !== undefined ? byNo : byName;
+
+          if (avail !== undefined && !isNaN(avail)) {
+            matched++;
+            return {
+              ...cp,
+              lots: {
+                ...cp.lots,
+                car: {
+                  ...cp.lots.car,
+                  available: Math.min(avail, cp.lots.car.total)
+                }
+              },
+              lastUpdated: new Date().toISOString()
+            };
+          }
+          return cp;
+        });
+
+        return {
+          updatedCarparks: updated,
+          syncStatus: {
+            isLiveApi: true,
+            lastUpdated: new Date(),
+            statusText: `LTA DataMall Connected (${json.count} lots streamed)`,
+            matchedCount: matched
+          }
+        };
+      }
+    }
+  } catch (err) {
+    // Continue to public open data fallback
+  }
+
+  // 2. Open Data fallback (api.data.gov.sg)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4500);
@@ -92,7 +152,7 @@ export async function syncRealtimeCarparks(
           syncStatus: {
             isLiveApi: true,
             lastUpdated: new Date(),
-            statusText: `Live LTA / Data.gov.sg synced (${matched} government carparks active)`,
+            statusText: `LTA Open Data Synced (${matched} gov carparks active)`,
             matchedCount: matched
           }
         };
